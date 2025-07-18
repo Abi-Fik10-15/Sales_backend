@@ -1,0 +1,60 @@
+version: '3.8'
+
+# This section defines all the services (containers) that make up your application stack.
+services:
+  # Service definition for the MongoDB database
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017" # Maps port 27017 from your computer to port 27017 in the container.
+    volumes:
+      - mongo-data:/data/db # Persists database data on your host machine to prevent data loss on container restart.
+    networks:
+      - app-network # Connects this service to our custom network.
+
+  # Service definition for the Keycloak authentication server
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    ports:
+      - "8180:8080" # Maps container port 8080 to host port 8180 to avoid conflicts.
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    command: start-dev # Use 'start-dev' for development. For production, use 'start' and configure TLS.
+    networks:
+      - app-network
+    depends_on:
+      - mongodb
+
+  # Service definition for your Spring Boot application
+  sales-setup-app:
+    build: . # Tells Docker Compose to build an image from the Dockerfile in the current directory.
+    container_name: sales-setup-app
+    ports:
+      # CHANGED: Mapped to host port 8085 to resolve the conflict on port 8084.
+      # The left side is the port on your computer (host), the right side is the port inside the container.
+      - "8085:8084"
+    environment:
+      # This tells Spring to connect to the 'mongodb' service on the Docker network.
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/sales_db
+      # This tells Spring Security where to find the Keycloak realm for token validation.
+      # The hostname 'keycloak' is automatically resolved by Docker Compose.
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=http://keycloak:8080/realms/saas-realm
+      # Explicitly set the application port inside the container to match the Dockerfile.
+      - SERVER_PORT=8084
+    depends_on:
+      - mongodb # Ensures mongodb starts before the application.
+      - keycloak  # Ensures keycloak starts before the application.
+    networks:
+      - app-network
+
+# Defines the custom bridge network that allows containers to communicate with each other using their service names.
+networks:
+  app-network:
+    driver: bridge
+
+# Defines the named volume for MongoDB data persistence.
+volumes:
+  mongo-data:
