@@ -1,68 +1,83 @@
 package com.saas.sales_setup.service;
 
 import com.saas.sales_setup.config.TenantContext;
+import com.saas.sales_setup.dto.AddSalesPriceRequestDto;
+import com.saas.sales_setup.dto.SalesPriceDetailDto;
+import com.saas.sales_setup.dto.TaxCalculationResultDTO;
+import com.saas.sales_setup.model.ItemPriceDetail;
 import com.saas.sales_setup.model.SalesItem;
 import com.saas.sales_setup.repository.SalesItemRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Implementation of the SalesItemService interface.
- * Contains the core business logic for sales item management.
- */
 @Service
 public class SalesItemServiceImpl implements SalesItemService {
 
     private final SalesItemRepository salesItemRepository;
+    private final TaxService taxService;
 
-    @Autowired
-    public SalesItemServiceImpl(SalesItemRepository salesItemRepository) {
+    public SalesItemServiceImpl(SalesItemRepository salesItemRepository, TaxService taxService) {
         this.salesItemRepository = salesItemRepository;
+        this.taxService = taxService;
     }
 
     @Override
     public SalesItem createSalesItem(SalesItem salesItem) {
-        String tenantId = TenantContext.getCurrentTenant();
-        salesItem.setTenantId(tenantId);
+        salesItem.setTenantId(TenantContext.getCurrentTenant());
         return salesItemRepository.save(salesItem);
     }
 
     @Override
-    public List<SalesItem> getAllSalesItems() {
-        String tenantId = TenantContext.getCurrentTenant();
-        return salesItemRepository.findByTenantId(tenantId);
-    }
-
-    @Override
     public Optional<SalesItem> getSalesItemById(String id) {
-        String tenantId = TenantContext.getCurrentTenant();
-        return salesItemRepository.findByIdAndTenantId(id, tenantId);
+        return salesItemRepository.findByIdAndTenantId(id, TenantContext.getCurrentTenant());
     }
 
     @Override
-    public SalesItem updateSalesItem(String id, SalesItem salesItemDetails) {
-        Optional<SalesItem> existingSalesItemOptional = getSalesItemById(id);
+    public List<SalesItem> getAllSalesItems() {
+        return salesItemRepository.findByTenantId(TenantContext.getCurrentTenant());
+    }
 
-        if (existingSalesItemOptional.isPresent()) {
-            SalesItem existingSalesItem = existingSalesItemOptional.get();
-            existingSalesItem.setItemId(salesItemDetails.getItemId());
-            existingSalesItem.setItemName(salesItemDetails.getItemName());
-            existingSalesItem.setItemCategory(salesItemDetails.getItemCategory());
-            existingSalesItem.setPurchasePrice(salesItemDetails.getPurchasePrice());
-            existingSalesItem.setUom(salesItemDetails.getUom());
-            existingSalesItem.setPriceDetails(salesItemDetails.getPriceDetails());
-
-            return salesItemRepository.save(existingSalesItem);
+    @Override
+    public SalesPriceDetailDto addSalesPriceToItem(AddSalesPriceRequestDto request) {
+        SalesItem salesItem = getSalesItemById(request.getSalesItemId())
+                .orElseThrow(() -> new RuntimeException("SalesItem not found with ID: " + request.getSalesItemId()));
+        TaxCalculationResultDTO taxResult = taxService.calculate(request.getSalesPrice(), request.getTaxTypeId())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid Tax ID: " + request.getTaxTypeId()));
+        ItemPriceDetail newPriceDetail = new ItemPriceDetail();
+        newPriceDetail.setSalesUnitPrice(taxResult.getBasePrice());
+        newPriceDetail.setDate(request.getEffectiveDate());
+        newPriceDetail.setTaxTypeId(request.getTaxTypeId());
+        if (salesItem.getPriceDetails() == null) {
+            salesItem.setPriceDetails(new ArrayList<>());
         }
-        return null; // Or throw a NotFoundException
+        salesItem.getPriceDetails().add(newPriceDetail);
+        salesItemRepository.save(salesItem);
+        return SalesPriceDetailDto.builder()
+                .basePrice(taxResult.getBasePrice())
+                .taxAmount(taxResult.getTaxAmount())
+                .totalPriceWithTax(taxResult.getTotalPrice())
+                .effectiveDate(request.getEffectiveDate())
+                .build();
+    }
+
+    @Override
+    public Optional<SalesItem> updateSalesItem(String id, SalesItem itemDetails) {
+        return getSalesItemById(id).map(existingItem -> {
+            existingItem.setItemName(itemDetails.getItemName());
+            existingItem.setItemId(itemDetails.getItemId()); // Corrected from getItemCode()
+            existingItem.setPurchasePrice(itemDetails.getPurchasePrice());
+            existingItem.setItemCategory(itemDetails.getItemCategory());
+            existingItem.setUom(itemDetails.getUom());
+            return salesItemRepository.save(existingItem);
+        });
     }
 
     @Override
     public void deleteSalesItem(String id) {
-        Optional<SalesItem> salesItemOptional = getSalesItemById(id);
-        salesItemOptional.ifPresent(salesItemRepository::delete);
+        if (salesItemRepository.existsByIdAndTenantId(id, TenantContext.getCurrentTenant())) {
+            salesItemRepository.deleteById(id);
+        }
     }
 }

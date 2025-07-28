@@ -2,28 +2,28 @@ package com.saas.sales_setup.repository;
 
 import com.saas.sales_setup.model.SalesItem;
 import org.springframework.data.mongodb.repository.MongoRepository;
+import org.springframework.stereotype.Repository;
+
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Repository interface for SalesItem documents.
- * Provides CRUD operations and custom queries for the SalesItem entity.
- */
+@Repository
 public interface SalesItemRepository extends MongoRepository<SalesItem, String> {
 
     /**
-     * Finds all sales items associated with a specific tenant.
-     * @param tenantId The ID of the tenant.
-     * @return A list of sales items for the given tenant.
+     * Finds all SalesItems belonging to a specific tenant.
      */
     List<SalesItem> findByTenantId(String tenantId);
 
     /**
-     * Finds a sales item by its ID and tenantId to ensure data isolation.
-     * @param id The unique ID of the sales item.
-     * @param tenantId The ID of the tenant.
-     * @return An Optional containing the sales item if found, or an empty Optional otherwise.
+     * Finds a single SalesItem by its ID, ensuring it belongs to the specified tenant.
      */
     Optional<SalesItem> findByIdAndTenantId(String id, String tenantId);
 
+    /**
+     * Checks if a SalesItem exists by its ID and tenant ID.
+     * This is more efficient than fetching the whole document just to check existence.
+     * ✅ ADD THIS METHOD
+     */
+    boolean existsByIdAndTenantId(String id, String tenantId);
 }
